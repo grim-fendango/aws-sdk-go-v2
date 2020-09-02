@@ -63,7 +63,8 @@ import (
 )
 
 const (
-	signingAlgorithm = "AWS4-HMAC-SHA256"
+	signingAlgorithm    = "AWS4-HMAC-SHA256"
+	authorizationHeader = "Authorization"
 )
 
 // HTTPSigner is an interface to a SigV4 signer that can sign HTTP requests
@@ -140,10 +141,10 @@ func (s *httpSigner) Build() (signedRequest, error) {
 		query.Set(v4Internal.AmzCredentialKey, credentialStr)
 	}
 
-	unsignedHeaders := headers
+	var unsignedHeaders http.Header
 	if s.IsPreSign && !s.DisableHeaderHoisting {
-		urlValues := url.Values{}
-		urlValues, unsignedHeaders = buildQuery(v4Internal.AllowedQueryHoisting, unsignedHeaders)
+		var urlValues url.Values
+		urlValues, unsignedHeaders = buildQuery(v4Internal.AllowedQueryHoisting, headers)
 		for k := range urlValues {
 			query[k] = urlValues[k]
 		}
@@ -328,17 +329,18 @@ func (s *httpSigner) buildCanonicalHeaders(host string, rule v4Internal.Rule, he
 	signed = make(http.Header)
 
 	var headers []string
-	headers = append(headers, "host")
-	signed["host"] = append(signed["host"], host)
+	const hostHeader = "host"
+	headers = append(headers, hostHeader)
+	signed[hostHeader] = append(signed[hostHeader], host)
 
 	if length > 0 {
-		headers = append(headers, "content-length")
-		signed["content-length"] = append(signed["content-length"], strconv.FormatInt(length, 10))
+		const contentLengthHeader = "content-length"
+		headers = append(headers, contentLengthHeader)
+		signed[contentLengthHeader] = append(signed[contentLengthHeader], strconv.FormatInt(length, 10))
 	}
 
 	for k, v := range header {
-		canonicalKey := http.CanonicalHeaderKey(k)
-		if !rule.IsValid(canonicalKey) {
+		if !rule.IsValid(k) {
 			continue // ignored header
 		}
 
@@ -358,7 +360,7 @@ func (s *httpSigner) buildCanonicalHeaders(host string, rule v4Internal.Rule, he
 
 	headerValues := make([]string, len(headers))
 	for i, k := range headers {
-		if k == "host" {
+		if k == hostHeader {
 			headerValues[i] = "host:" + host
 		} else {
 			headerValues[i] = k + ":" + strings.Join(signed[k], ",")
@@ -421,10 +423,10 @@ func (s *httpSigner) setRequiredSigningFields(headers http.Header, query url.Val
 		return
 	}
 
-	headers.Set(v4Internal.AmzDateKey, amzDate)
+	headers[v4Internal.AmzDateKey] = append(headers[v4Internal.AmzDateKey][:0], amzDate)
 
 	if len(s.Credentials.SessionToken) > 0 {
-		headers.Set(v4Internal.AmzSecurityTokenKey, s.Credentials.SessionToken)
+		headers[v4Internal.AmzSecurityTokenKey] = append(headers[v4Internal.AmzSecurityTokenKey][:0], s.Credentials.SessionToken)
 	}
 }
 
