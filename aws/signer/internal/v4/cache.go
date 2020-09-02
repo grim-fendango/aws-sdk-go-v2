@@ -1,124 +1,120 @@
 package v4
 
 import (
-	"container/heap"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/internal/sdk"
 )
 
-func lookupKey(accessKey, service, region, date string) string {
+func lookupKey(service, region string) string {
 	var s strings.Builder
-	s.Grow(len(accessKey) + len(date) + len(region) + len(service) + 3)
-	s.WriteString(accessKey)
-	s.WriteRune('/')
-	s.WriteString(date)
-	s.WriteRune('/')
+	s.Grow(len(region) + len(service) + 3)
 	s.WriteString(region)
 	s.WriteRune('/')
 	s.WriteString(service)
 	return s.String()
 }
 
-type keyValue struct {
-	Key        string
-	Accessed   atomic.Value
+type credentialCacheEntry struct {
+	AccessKey  string
+	Date       time.Time
 	Credential []byte
 }
 
-func (v *keyValue) Expired(t time.Time) bool {
-	return v.Accessed.Load().(time.Time).Before(t)
+type signingCache struct {
+	values map[string]atomic.Value
+	mutex  sync.RWMutex
 }
 
-type lastAccessHeap []*keyValue
+func isSameDay(x, y time.Time) bool {
+	xYear, xMonth, xDay := x.Date()
+	yYear, yMonth, yDay := y.Date()
 
-func (h lastAccessHeap) Len() int {
-	return len(h)
+	if xYear != yYear {
+		return false
+	}
+
+	if xMonth != yMonth {
+		return false
+	}
+
+	return xDay == yDay
 }
 
-func (h lastAccessHeap) Less(i, j int) bool {
-	return h[i].Accessed.Load().(time.Time).Before(h[j].Accessed.Load().(time.Time))
+func (s *signingCache) Get(credentials aws.Credentials, service, region string, signingTime SigningTime) []byte {
+	key := lookupKey(service, region)
+	s.mutex.RLock()
+	cacheEntry, cacheResult := s.get(key, credentials, signingTime.Time)
+	if cacheResult == Match {
+		s.mutex.RUnlock()
+		return cacheEntry.Credential
+	}
+	s.mutex.RUnlock()
+
+	cred := deriveKey(credentials.SecretAccessKey, service, region, signingTime)
+	entry := credentialCacheEntry{
+		AccessKey:  credentials.AccessKeyID,
+		Date:       signingTime.Time,
+		Credential: cred,
+	}
+
+	if cacheResult == NotMatching {
+		v := s.values[key]
+		v.Store(entry)
+		return cred
+	}
+
+	s.mutex.Lock()
+	v := s.values[key]
+	v.Store(entry)
+	s.mutex.Unlock()
+
+	return cred
 }
 
-func (h lastAccessHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
+type CacheResult int
+
+const (
+	Missing CacheResult = iota
+	NotMatching
+	Match
+)
+
+func (s *signingCache) get(key string, credentials aws.Credentials, signingTime time.Time) (credentialCacheEntry, CacheResult) {
+	cacheEntry, ok := s.retrieveFromCache(key)
+	if ok {
+		if cacheEntry.AccessKey == credentials.AccessKeyID && isSameDay(signingTime, cacheEntry.Date) {
+			return cacheEntry, Match
+		}
+		return credentialCacheEntry{}, NotMatching
+	}
+
+	return credentialCacheEntry{}, Missing
 }
 
-func (h *lastAccessHeap) Push(x interface{}) {
-	*h = append(*h, x.(*keyValue))
-}
-
-func (h *lastAccessHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[0 : n-1]
-	return x
+func (s *signingCache) retrieveFromCache(key string) (credentialCacheEntry, bool) {
+	if v, ok := s.values[key]; ok {
+		return v.Load().(credentialCacheEntry), true
+	}
+	return credentialCacheEntry{}, false
 }
 
 type KeyDerivator struct {
-	lastAccess lastAccessHeap
-	values     map[string]*keyValue
-	rw         sync.RWMutex
+	cache signingCache
 }
 
 func NewKeyDerivator() *KeyDerivator {
 	return &KeyDerivator{
-		values: make(map[string]*keyValue),
+		cache: signingCache{values: make(map[string]atomic.Value)},
 	}
 }
 
-func (k *KeyDerivator) DeriveKey(credential aws.Credentials, service, region string, t time.Time) ([]byte, error) {
+func (k *KeyDerivator) DeriveKey(credential aws.Credentials, service, region string, t time.Time) []byte {
 	signingTime := NewSigningTime(t)
-
-	lookupKey := lookupKey(credential.AccessKeyID, service, region, signingTime.ShortTimeFormat())
-
-	k.rw.RLock()
-	key, ok := k.getKey(lookupKey)
-	if ok {
-		k.rw.RUnlock()
-		return key, nil
-	}
-	k.rw.RUnlock()
-
-	k.rw.Lock()
-	key, err := k.deriveKey(lookupKey, credential, service, region, signingTime)
-	k.rw.Unlock()
-
-	return key, err
-}
-
-func (k *KeyDerivator) getKey(lookup string) ([]byte, bool) {
-	currentTime := sdk.NowTime().UTC()
-	value, ok := k.values[lookup]
-	if !ok {
-		return nil, false
-	}
-	value.Accessed.Store(currentTime)
-	return value.Credential, true
-}
-
-func (k *KeyDerivator) deriveKey(lookup string, credential aws.Credentials, service string, region string, signingTime SigningTime) ([]byte, error) {
-	if v, ok := k.getKey(lookup); ok {
-		return v, nil
-	}
-
-	cred := deriveKey(credential.SecretAccessKey, service, region, signingTime)
-
-	entry := &keyValue{
-		Key:        lookup,
-		Credential: cred,
-	}
-	entry.Accessed.Store(sdk.NowTime().UTC())
-
-	k.values[lookup] = entry
-	heap.Push(&k.lastAccess, entry)
-
-	return cred, nil
+	return k.cache.Get(credential, service, region, signingTime)
 }
 
 func deriveKey(secret, service, region string, t SigningTime) []byte {
@@ -126,19 +122,4 @@ func deriveKey(secret, service, region string, t SigningTime) []byte {
 	hmacRegion := HMACSHA256(hmacDate, []byte(region))
 	hmacService := HMACSHA256(hmacRegion, []byte(service))
 	return HMACSHA256(hmacService, []byte("aws4_request"))
-}
-
-func (k *KeyDerivator) manageLastAccess(now time.Time) {
-	heap.Init(&k.lastAccess)
-	exp := now.Add(time.Minute * -5)
-	pop := heap.Pop(&k.lastAccess).(*keyValue)
-	for pop.Expired(exp) && len(k.lastAccess) > 0 {
-		delete(k.values, pop.Key)
-		if len(k.lastAccess) > 0 {
-			pop = heap.Pop(&k.lastAccess).(*keyValue)
-		}
-	}
-	if !pop.Expired(exp) {
-		heap.Push(&k.lastAccess, pop)
-	}
 }
