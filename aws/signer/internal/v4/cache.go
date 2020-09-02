@@ -3,7 +3,6 @@ package v4
 import (
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,7 +24,7 @@ type credentialCacheEntry struct {
 }
 
 type signingCache struct {
-	values map[string]atomic.Value
+	values map[string]credentialCacheEntry
 	mutex  sync.RWMutex
 }
 
@@ -47,57 +46,40 @@ func isSameDay(x, y time.Time) bool {
 func (s *signingCache) Get(credentials aws.Credentials, service, region string, signingTime SigningTime) []byte {
 	key := lookupKey(service, region)
 	s.mutex.RLock()
-	cacheEntry, cacheResult := s.get(key, credentials, signingTime.Time)
-	if cacheResult == Match {
+	if cred, ok := s.get(key, credentials, signingTime.Time); ok {
 		s.mutex.RUnlock()
-		return cacheEntry.Credential
+		return cred
 	}
 	s.mutex.RUnlock()
 
+	s.mutex.Lock()
+	if cred, ok := s.get(key, credentials, signingTime.Time); ok {
+		s.mutex.Unlock()
+		return cred
+	}
 	cred := deriveKey(credentials.SecretAccessKey, service, region, signingTime)
 	entry := credentialCacheEntry{
 		AccessKey:  credentials.AccessKeyID,
 		Date:       signingTime.Time,
 		Credential: cred,
 	}
-
-	if cacheResult == NotMatching {
-		v := s.values[key]
-		v.Store(entry)
-		return cred
-	}
-
-	s.mutex.Lock()
-	v := s.values[key]
-	v.Store(entry)
+	s.values[key] = entry
 	s.mutex.Unlock()
 
 	return cred
 }
 
-type CacheResult int
-
-const (
-	Missing CacheResult = iota
-	NotMatching
-	Match
-)
-
-func (s *signingCache) get(key string, credentials aws.Credentials, signingTime time.Time) (credentialCacheEntry, CacheResult) {
+func (s *signingCache) get(key string, credentials aws.Credentials, signingTime time.Time) ([]byte, bool) {
 	cacheEntry, ok := s.retrieveFromCache(key)
-	if ok {
-		if cacheEntry.AccessKey == credentials.AccessKeyID && isSameDay(signingTime, cacheEntry.Date) {
-			return cacheEntry, Match
-		}
-		return credentialCacheEntry{}, NotMatching
+	if ok && cacheEntry.AccessKey == credentials.AccessKeyID && isSameDay(signingTime, cacheEntry.Date) {
+		return cacheEntry.Credential, true
 	}
-
-	return credentialCacheEntry{}, Missing
+	return nil, false
 }
 
 func (s *signingCache) retrieveFromCache(key string) (credentialCacheEntry, bool) {
 	if v, ok := s.values[key]; ok {
-		return v.Load().(credentialCacheEntry), true
+		return v, true
 	}
 	return credentialCacheEntry{}, false
 }
@@ -108,7 +90,7 @@ type KeyDerivator struct {
 
 func NewKeyDerivator() *KeyDerivator {
 	return &KeyDerivator{
-		cache: signingCache{values: make(map[string]atomic.Value)},
+		cache: signingCache{values: make(map[string]credentialCacheEntry)},
 	}
 }
 
