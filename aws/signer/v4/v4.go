@@ -107,6 +107,7 @@ type Signer struct {
 	keyDerivator keyDerivator
 }
 
+// NewSigner returns a new SigV4 Signer
 func NewSigner(optFns ...func(signer *Signer)) *Signer {
 	s := &Signer{keyDerivator: v4Internal.NewSigningKeyDeriver()}
 

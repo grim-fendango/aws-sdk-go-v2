@@ -88,6 +88,7 @@ public final class AwsSignatureVersion4 implements GoIntegration {
     @Override
     public List<RuntimeClientPlugin> getClientPlugins() {
         return ListUtils.of(RuntimeClientPlugin.builder()
+                .servicePredicate(AwsSignatureVersion4::isSupportedAuthentication)
                 .addConfigField(ConfigField.builder()
                         .name(SIGNER_INTERFACE_NAME)
                         .type(SymbolUtils.createValueSymbolBuilder(SIGNER_INTERFACE_NAME).build())
