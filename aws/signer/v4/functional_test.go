@@ -48,7 +48,7 @@ func TestStandaloneSign_CustomURIEscape(t *testing.T) {
 	req.URL.Path = `/log-*/_search`
 	req.URL.Opaque = "//subdomain.us-east-1.es.amazonaws.com/log-%2A/_search"
 
-	err = signer.SignHTTP(creds, req, v4Internal.EmptyStringSHA256, "es", "us-east-1", time.Unix(0, 0))
+	err = signer.SignHTTP(context.Background(), creds, req, v4Internal.EmptyStringSHA256, "es", "us-east-1", time.Unix(0, 0))
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
@@ -80,7 +80,7 @@ func TestStandaloneSign(t *testing.T) {
 		req.URL.Path = c.OrigURI
 		req.URL.RawQuery = c.OrigQuery
 
-		err = signer.SignHTTP(creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
+		err = signer.SignHTTP(context.Background(), creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
 		if err != nil {
 			t.Errorf("expected no error, but received %v", err)
 		}
@@ -120,7 +120,7 @@ func TestStandaloneSign_RawPath(t *testing.T) {
 		req.URL.RawPath = c.EscapedURI
 		req.URL.RawQuery = c.OrigQuery
 
-		err = signer.SignHTTP(creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
+		err = signer.SignHTTP(context.Background(), creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
 		if err != nil {
 			t.Errorf("expected no error, but received %v", err)
 		}
