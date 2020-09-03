@@ -414,9 +414,7 @@ func (s *httpSigner) buildCanonicalHeaders(host string, rule v4Internal.Rule, he
 			canonicalHeaders.WriteRune(colon)
 			canonicalHeaders.WriteString(strings.Join(signed[headers[i]], ","))
 		}
-		if i != n-1 {
-			canonicalHeaders.WriteRune('\n')
-		}
+		canonicalHeaders.WriteRune('\n')
 	}
 	canonicalHeadersStr = canonicalHeaders.String()
 
@@ -428,7 +426,7 @@ func (s *httpSigner) buildCanonicalString(method, uri, query, signedHeaders, can
 		method,
 		uri,
 		query,
-		canonicalHeaders + "\n",
+		canonicalHeaders,
 		signedHeaders,
 		s.PayloadHash,
 	}, "\n")
