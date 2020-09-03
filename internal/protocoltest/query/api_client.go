@@ -29,8 +29,6 @@ func New(options Options, optFns ...func(*Options)) *Client {
 
 	resolveHTTPClient(&options)
 
-	resolveHTTPSignerV4(&options)
-
 	resolveDefaultEndpointConfiguration(&options)
 
 	resolveIdempotencyTokenProvider(&options)
@@ -57,9 +55,6 @@ type Options struct {
 
 	// The service endpoint resolver.
 	EndpointResolver EndpointResolver
-
-	// Signature Version 4 (SigV4) Signer
-	HTTPSignerV4 HTTPSignerV4
 
 	// Provides idempotency tokens values that will be automatically populated into
 	// idempotent API operations.
@@ -89,10 +84,6 @@ func (o Options) GetEndpointOptions() ResolverOptions {
 
 func (o Options) GetEndpointResolver() EndpointResolver {
 	return o.EndpointResolver
-}
-
-func (o Options) GetHTTPSignerV4() HTTPSignerV4 {
-	return o.HTTPSignerV4
 }
 
 func (o Options) GetIdempotencyTokenProvider() IdempotencyTokenProvider {

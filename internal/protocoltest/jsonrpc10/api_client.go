@@ -26,8 +26,6 @@ func New(options Options, optFns ...func(*Options)) *Client {
 
 	resolveHTTPClient(&options)
 
-	resolveHTTPSignerV4(&options)
-
 	resolveDefaultEndpointConfiguration(&options)
 
 	for _, fn := range optFns {
@@ -53,9 +51,6 @@ type Options struct {
 	// The service endpoint resolver.
 	EndpointResolver EndpointResolver
 
-	// Signature Version 4 (SigV4) Signer
-	HTTPSignerV4 HTTPSignerV4
-
 	// An integer value representing the logging level.
 	LogLevel aws.LogLevel
 
@@ -80,10 +75,6 @@ func (o Options) GetEndpointOptions() ResolverOptions {
 
 func (o Options) GetEndpointResolver() EndpointResolver {
 	return o.EndpointResolver
-}
-
-func (o Options) GetHTTPSignerV4() HTTPSignerV4 {
-	return o.HTTPSignerV4
 }
 
 func (o Options) GetLogLevel() aws.LogLevel {
