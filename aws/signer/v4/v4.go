@@ -107,7 +107,7 @@ type Signer struct {
 	keyDerivator keyDerivator
 }
 
-func NewSinger(optFns ...func(signer *Signer)) *Signer {
+func NewSigner(optFns ...func(signer *Signer)) *Signer {
 	s := &Signer{keyDerivator: v4Internal.NewSigningKeyDeriver()}
 
 	for _, fn := range optFns {
