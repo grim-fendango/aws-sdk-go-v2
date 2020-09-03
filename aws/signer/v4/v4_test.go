@@ -2,7 +2,6 @@ package v4
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	v4Internal "github.com/aws/aws-sdk-go-v2/aws/signer/internal/v4"
 )
 
 var testCredentials = aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET", SessionToken: "SESSION"}
@@ -57,8 +57,8 @@ func buildRequestWithBodyReader(serviceName, region string, body io.Reader) (*ht
 func TestPresignRequest(t *testing.T) {
 	req, body := buildRequest("dynamodb", "us-east-1", "{}")
 
-	signer := Signer{}
-	signed, headers, err := signer.PresignHTTP(context.Background(), testCredentials, req, body, "dynamodb", "us-east-1", 300*time.Second, time.Unix(0, 0))
+	signer := NewSinger()
+	signed, headers, err := signer.PresignHTTP(testCredentials, req, body, "dynamodb", "us-east-1", 300*time.Second, time.Unix(0, 0))
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -105,8 +105,8 @@ func TestPresignBodyWithArrayRequest(t *testing.T) {
 	req, body := buildRequest("dynamodb", "us-east-1", "{}")
 	req.URL.RawQuery = "Foo=z&Foo=o&Foo=m&Foo=a"
 
-	signer := Signer{}
-	signed, headers, err := signer.PresignHTTP(context.Background(), testCredentials, req, body, "dynamodb", "us-east-1", 300*time.Second, time.Unix(0, 0))
+	signer := NewSinger()
+	signed, headers, err := signer.PresignHTTP(testCredentials, req, body, "dynamodb", "us-east-1", 300*time.Second, time.Unix(0, 0))
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
@@ -151,8 +151,8 @@ func TestPresignBodyWithArrayRequest(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	req, body := buildRequest("dynamodb", "us-east-1", "{}")
-	signer := Signer{}
-	err := signer.SignHTTP(context.Background(), testCredentials, req, body, "dynamodb", "us-east-1", time.Unix(0, 0))
+	signer := NewSinger()
+	err := signer.SignHTTP(testCredentials, req, body, "dynamodb", "us-east-1", time.Unix(0, 0))
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
@@ -173,11 +173,12 @@ func TestBuildCanonicalRequest(t *testing.T) {
 	req, _ := buildRequest("dynamodb", "us-east-1", "{}")
 	req.URL.RawQuery = "Foo=z&Foo=o&Foo=m&Foo=a"
 	ctx := &httpSigner{
-		ServiceName: "dynamodb",
-		Region:      "us-east-1",
-		Request:     req,
-		Time:        time.Now(),
-		ExpireTime:  5 * time.Second,
+		ServiceName:  "dynamodb",
+		Region:       "us-east-1",
+		Request:      req,
+		Time:         v4Internal.NewSigningTime(time.Now()),
+		ExpireTime:   5 * time.Second,
+		KeyDerivator: v4Internal.NewSigningKeyDeriver(),
 	}
 
 	build, err := ctx.Build()
@@ -195,11 +196,11 @@ func TestSigner_SignHTTP_NoReplaceRequestBody(t *testing.T) {
 	req, bodyHash := buildRequest("dynamodb", "us-east-1", "{}")
 	req.Body = ioutil.NopCloser(bytes.NewReader([]byte{}))
 
-	s := Signer{}
+	s := NewSinger()
 
 	origBody := req.Body
 
-	err := s.SignHTTP(context.Background(), testCredentials, req, bodyHash, "dynamodb", "us-east-1", time.Now())
+	err := s.SignHTTP(testCredentials, req, bodyHash, "dynamodb", "us-east-1", time.Now())
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
@@ -214,11 +215,12 @@ func TestRequestHost(t *testing.T) {
 	req.URL.RawQuery = "Foo=z&Foo=o&Foo=m&Foo=a"
 	req.Host = "myhost"
 	ctx := &httpSigner{
-		ServiceName: "dynamodb",
-		Region:      "us-east-1",
-		Request:     req,
-		Time:        time.Now(),
-		ExpireTime:  5 * time.Second,
+		ServiceName:  "dynamodb",
+		Region:       "us-east-1",
+		Request:      req,
+		Time:         v4Internal.NewSigningTime(time.Now()),
+		ExpireTime:   5 * time.Second,
+		KeyDerivator: v4Internal.NewSigningKeyDeriver(),
 	}
 
 	build, err := ctx.Build()
@@ -232,17 +234,17 @@ func TestRequestHost(t *testing.T) {
 }
 
 func BenchmarkPresignRequest(b *testing.B) {
-	signer := Signer{}
+	signer := NewSinger()
 	req, bodyHash := buildRequest("dynamodb", "us-east-1", "{}")
 	for i := 0; i < b.N; i++ {
-		signer.PresignHTTP(context.Background(), testCredentials, req, bodyHash, "dynamodb", "us-east-1", 300*time.Second, time.Now())
+		signer.PresignHTTP(testCredentials, req, bodyHash, "dynamodb", "us-east-1", 300*time.Second, time.Now())
 	}
 }
 
 func BenchmarkSignRequest(b *testing.B) {
-	signer := Signer{}
+	signer := NewSinger()
 	req, bodyHash := buildRequest("dynamodb", "us-east-1", "{}")
 	for i := 0; i < b.N; i++ {
-		signer.SignHTTP(context.Background(), testCredentials, req, bodyHash, "dynamodb", "us-east-1", time.Now())
+		signer.SignHTTP(testCredentials, req, bodyHash, "dynamodb", "us-east-1", time.Now())
 	}
 }

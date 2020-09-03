@@ -35,9 +35,9 @@ func TestStandaloneSign_CustomURIEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
-	signer := v4.Signer{
-		DisableURIPathEscaping: true,
-	}
+	signer := v4.NewSinger(func(signer *v4.Signer) {
+		signer.DisableURIPathEscaping = true
+	})
 
 	host := "https://subdomain.us-east-1.es.amazonaws.com"
 	req, err := http.NewRequest("GET", host, nil)
@@ -48,7 +48,7 @@ func TestStandaloneSign_CustomURIEscape(t *testing.T) {
 	req.URL.Path = `/log-*/_search`
 	req.URL.Opaque = "//subdomain.us-east-1.es.amazonaws.com/log-%2A/_search"
 
-	err = signer.SignHTTP(context.Background(), creds, req, v4Internal.EmptyStringSHA256, "es", "us-east-1", time.Unix(0, 0))
+	err = signer.SignHTTP(creds, req, v4Internal.EmptyStringSHA256, "es", "us-east-1", time.Unix(0, 0))
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
@@ -64,7 +64,7 @@ func TestStandaloneSign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
-	signer := v4.Signer{}
+	signer := v4.NewSinger()
 
 	for _, c := range standaloneSignCases {
 		host := fmt.Sprintf("https://%s.%s.%s.amazonaws.com",
@@ -80,7 +80,7 @@ func TestStandaloneSign(t *testing.T) {
 		req.URL.Path = c.OrigURI
 		req.URL.RawQuery = c.OrigQuery
 
-		err = signer.SignHTTP(context.Background(), creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
+		err = signer.SignHTTP(creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
 		if err != nil {
 			t.Errorf("expected no error, but received %v", err)
 		}
@@ -103,7 +103,7 @@ func TestStandaloneSign_RawPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expect no error, got %v", err)
 	}
-	signer := v4.Signer{}
+	signer := v4.NewSinger()
 
 	for _, c := range standaloneSignCases {
 		host := fmt.Sprintf("https://%s.%s.%s.amazonaws.com",
@@ -120,7 +120,7 @@ func TestStandaloneSign_RawPath(t *testing.T) {
 		req.URL.RawPath = c.EscapedURI
 		req.URL.RawQuery = c.OrigQuery
 
-		err = signer.SignHTTP(context.Background(), creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
+		err = signer.SignHTTP(creds, req, v4Internal.EmptyStringSHA256, c.Service, c.Region, time.Unix(0, 0))
 		if err != nil {
 			t.Errorf("expected no error, but received %v", err)
 		}
